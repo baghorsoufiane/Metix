@@ -70,13 +70,17 @@ async def extract_cv(
             assistant_id=assistant.id
         )
 
-        # Attendre que le traitement se termine
+        # Attendre que le traitement se termine avec log en cas d'erreur
         while True:
             run_status = openai.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
+
             if run_status.status == "completed":
                 break
             elif run_status.status in ["failed", "cancelled", "expired"]:
+                print("Échec du run OpenAI:")
+                print(run_status)
                 raise HTTPException(status_code=500, detail=f"OpenAI run failed: {run_status.status}")
+            
             time.sleep(2)
 
         # Récupérer la réponse finale
