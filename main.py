@@ -40,7 +40,7 @@ async def extract_cv(
             - Périodes d’inactivité
             - Nombre d'années d'expérience
             """,
-            model="gpt-4"
+            model="gpt-4.1"
         )
 
         thread = openai.beta.threads.create()
