@@ -16,16 +16,19 @@ async def extract_cv(
 
     openai.api_key = api_key
 
+    # Enregistrer temporairement le fichier
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
         tmp.write(await file.read())
         temp_path = tmp.name
 
     try:
+        # Uploader le fichier vers OpenAI
         uploaded_file = openai.files.create(
             file=open(temp_path, "rb"),
             purpose="assistants"
         )
 
+        # Créer l'assistant avec file_search activé
         assistant = openai.beta.assistants.create(
             name="CV Extractor",
             instructions="""
@@ -40,23 +43,33 @@ async def extract_cv(
             - Périodes d’inactivité
             - Nombre d'années d'expérience
             """,
-            model="gpt-4.1"
+            model="gpt-4.1",
+            tools=[{"type": "file_search"}]
         )
 
+        # Créer un thread de discussion
         thread = openai.beta.threads.create()
 
+        # Ajouter un message utilisateur avec attachement du fichier
         openai.beta.threads.messages.create(
             thread_id=thread.id,
             role="user",
             content="Analyse ce CV et renvoie les informations sous forme de JSON.",
-            file_ids=[uploaded_file.id]
+            attachments=[
+                {
+                    "file_id": uploaded_file.id,
+                    "tools": [{"type": "file_search"}]
+                }
+            ]
         )
 
+        # Lancer le traitement
         run = openai.beta.threads.runs.create(
             thread_id=thread.id,
             assistant_id=assistant.id
         )
 
+        # Attendre que le traitement se termine
         while True:
             run_status = openai.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
             if run_status.status == "completed":
@@ -65,6 +78,7 @@ async def extract_cv(
                 raise HTTPException(status_code=500, detail=f"OpenAI run failed: {run_status.status}")
             time.sleep(2)
 
+        # Récupérer la réponse finale
         messages = openai.beta.threads.messages.list(thread_id=thread.id)
         final_message = messages.data[0].content[0].text.value
 
