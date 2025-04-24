@@ -1,51 +1,102 @@
-from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import JSONResponse
-import tempfile
 import os
-from transformers import pipeline
-import docx2txt
-import pdfplumber
+import time
+import openai
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 app = FastAPI()
 
-# Initialiser le pipeline NER
-ner_pipeline = pipeline("ner", model="dslim/bert-base-NER", grouped_entities=True)
+# Middleware CORS (utile pour appels frontend)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-def extract_text(file_path, filename):
-    if filename.endswith(".pdf"):
-        with pdfplumber.open(file_path) as pdf:
-            return "\n".join(page.extract_text() or "" for page in pdf.pages)
-    elif filename.endswith(".docx"):
-        return docx2txt.process(file_path)
-    else:
-        return ""
+# Créer une seule fois l'assistant (en mémoire)
+assistant_id = None
 
-@app.post("/upload-cv/")
-async def upload_cv(file: UploadFile = File(...)):
+def init_cv_assistant():
+    global assistant_id
+    if assistant_id is None:
+        assistant = openai.beta.assistants.create(
+            name="CV Extractor",
+            instructions="""
+Tu es un assistant RH spécialisé en analyse de CV. Tu dois extraire les informations suivantes depuis le document fourni (en tenant compte de la structure, du format visuel, des titres et du contenu) et retourner un JSON structuré :
+
+1. Informations personnelles (nom, prénom, email, téléphone, adresse s’il y en a)
+2. Expériences professionnelles :
+   - intitulé de poste
+   - entreprise
+   - dates (début et fin)
+   - description (en puces)
+   - compétences ou environnement technique
+3. Formations (écoles/universités, diplômes, dates)
+4. Certifications (avec dates)
+5. Compétences techniques
+6. Compétences personnelles
+7. Langues (avec niveau)
+8. Nombre total d’années d’expérience
+9. Périodes d’inactivité de plus de 6 mois
+
+Donne uniquement un JSON bien formaté, sans explication ou texte autour.
+""",
+            tools=[{"type": "code_interpreter"}],
+            model="gpt-4-turbo"
+        )
+        assistant_id = assistant.id
+
+init_cv_assistant()
+
+
+@app.post("/extract_cv/")
+async def extract_cv(file: UploadFile = File(...)):
+    if not file.filename.endswith((".pdf", ".docx")):
+        raise HTTPException(status_code=400, detail="Format de fichier non supporté.")
+
     try:
-        # Sauvegarder le fichier temporairement
-        suffix = os.path.splitext(file.filename)[1]
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(await file.read())
-            tmp_path = tmp.name
+        # Upload du fichier à l’API OpenAI
+        contents = await file.read()
+        openai_file = openai.files.create(
+            file=(file.filename, contents),
+            purpose="assistants"
+        )
 
-        # Extraire le texte du fichier
-        text = extract_text(tmp_path, file.filename)
+        # Création du thread
+        thread = openai.beta.threads.create()
 
-        # Appliquer le modèle NER
-        ner_results = ner_pipeline(text)
+        # Message utilisateur dans le thread
+        openai.beta.threads.messages.create(
+            thread_id=thread.id,
+            role="user",
+            content="Voici un CV. Merci d’en extraire les informations demandées.",
+            file_ids=[openai_file.id]
+        )
 
-        # Organiser les entités extraites
-        extracted_data = {}
-        for entity in ner_results:
-            label = entity['entity_group']
-            word = entity['word']
-            extracted_data.setdefault(label, []).append(word)
+        # Lancer le run
+        run = openai.beta.threads.runs.create(
+            thread_id=thread.id,
+            assistant_id=assistant_id
+        )
 
-        return JSONResponse(content=extracted_data)
+        # Attendre la fin du run
+        while True:
+            run_status = openai.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
+            if run_status.status == "completed":
+                break
+            elif run_status.status == "failed":
+                raise Exception("Échec de l’analyse.")
+            time.sleep(2)
+
+        # Récupérer la réponse
+        messages = openai.beta.threads.messages.list(thread_id=thread.id)
+        result = messages.data[0].content[0].text.value
+
+        return JSONResponse(content={"extraction": result})
 
     except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=500)
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        raise HTTPException(status_code=500, detail=f"Erreur serveur : {str(e)}")
