@@ -27,6 +27,7 @@ async def extract_cv(
             file=open(temp_path, "rb"),
             purpose="assistants"
         )
+        print("Fichier uploadé :", uploaded_file)
 
         # Créer l'assistant avec file_search activé
         assistant = openai.beta.assistants.create(
