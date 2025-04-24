@@ -1,7 +1,4 @@
 fastapi
 uvicorn
-transformers
-torch
-pdfplumber
-docx2txt
 python-multipart
+openai
