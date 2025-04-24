@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # AJOUT ICI : Clé OpenAI directement dans le script
 # (à retirer pour la prod, à stocker dans variable d’env)
 # ---------------------------------------------------
-openai.api_key = "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"
+openai.api_key = "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"
 
 app = FastAPI()
 
