@@ -43,6 +43,8 @@ async def extract_cv(
             - Compétences techniques et personnelles
             - Périodes d’inactivité
             - Nombre d'années d'expérience
+
+            Fournis uniquement ces données en JSON, sans texte supplémentaire.
             """,
             model="gpt-4.1",
             tools=[{"type": "file_search"}]
