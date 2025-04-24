@@ -5,7 +5,11 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# ---------------------------------------------------
+# AJOUT ICI : Clé OpenAI directement dans le script
+# (à retirer pour la prod, à stocker dans variable d’env)
+# ---------------------------------------------------
+openai.api_key = "sk-votre_cle_openai_ici"
 
 app = FastAPI()
 
@@ -17,7 +21,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Créer une seule fois l'assistant (en mémoire)
+# Assistant GPT-4 RH unique (créé au premier appel)
 assistant_id = None
 
 def init_cv_assistant():
@@ -59,17 +63,19 @@ async def extract_cv(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Format de fichier non supporté.")
 
     try:
-        # Upload du fichier à l’API OpenAI
+        # Lire le fichier uploadé
         contents = await file.read()
+
+        # Upload vers OpenAI
         openai_file = openai.files.create(
             file=(file.filename, contents),
             purpose="assistants"
         )
 
-        # Création du thread
+        # Créer une session de thread
         thread = openai.beta.threads.create()
 
-        # Message utilisateur dans le thread
+        # Ajouter un message utilisateur avec le fichier
         openai.beta.threads.messages.create(
             thread_id=thread.id,
             role="user",
@@ -77,13 +83,13 @@ async def extract_cv(file: UploadFile = File(...)):
             file_ids=[openai_file.id]
         )
 
-        # Lancer le run
+        # Lancer le run de l’assistant
         run = openai.beta.threads.runs.create(
             thread_id=thread.id,
             assistant_id=assistant_id
         )
 
-        # Attendre la fin du run
+        # Attente de la réponse
         while True:
             run_status = openai.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
             if run_status.status == "completed":
@@ -92,7 +98,7 @@ async def extract_cv(file: UploadFile = File(...)):
                 raise Exception("Échec de l’analyse.")
             time.sleep(2)
 
-        # Récupérer la réponse
+        # Récupérer le résultat final
         messages = openai.beta.threads.messages.list(thread_id=thread.id)
         result = messages.data[0].content[0].text.value
 
