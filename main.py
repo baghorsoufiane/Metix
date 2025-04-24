@@ -9,12 +9,11 @@ app = FastAPI()
 @app.post("/extract-cv/")
 async def extract_cv(
     file: UploadFile = File(...),
-    authorization: str = Header(default=None)
+    api_key: str = Header(default=None)
 ):
-    if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="Authorization header must be in format: Bearer sk-...")
+    if not api_key or not api_key.lower().startswith("sk-"):
+        raise HTTPException(status_code=401, detail="API key must be provided in header 'api-key' and start with sk-...")
 
-    api_key = authorization[7:].strip()
     openai.api_key = api_key
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
