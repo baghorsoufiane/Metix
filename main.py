@@ -1,95 +1,101 @@
 from fastapi import FastAPI, File, UploadFile, Header, HTTPException
-import openai
+import pdfplumber
+import re
 import tempfile
 import os
-import time
+import openai
+import json
 
 app = FastAPI()
 
-@app.post("/extract-cv/")
-async def extract_cv(
-    file: UploadFile = File(...),
-    api_key: str = Header(default=None)
-):
-    if not api_key or not api_key.lower().startswith("sk-"):
-        raise HTTPException(status_code=401, detail="API key must be provided in header 'api-key' and start with sk-...")
+# --- 1. Schéma JSON de sortie pour function-calling
+extract_cv_schema = {
+    "name": "extract_cv",
+    "description": "Extract all information from a CV into a structured JSON",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "personal_information": { "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "title": {"type": "string"},
+                    "email": {"type": "string"},
+                    "phone": {"type": "string"},
+                    "location": {"type": "string"}
+                }
+            },
+            "experience": {
+                "type": "array",
+                "items": {"type":"object",
+                    "properties": {
+                        "role": {"type":"string"},
+                        "company": {"type":"string"},
+                        "start_date": {"type":"string"},
+                        "end_date": {"type":"string"},
+                        "responsibilities": {
+                            "type":"array","items":{"type":"string"}
+                        },
+                        "environment": {
+                            "type":"array","items":{"type":"string"}
+                        }
+                    }
+                }
+            },
+            # … autres sections (education, certifications, skills, languages)
+        },
+        "required": ["personal_information", "experience"]
+    }
+}
 
+# --- 2. Extraction texte en colonnes + reconstruction
+def extract_text_columns(path):
+    text_pages = []
+    with pdfplumber.open(path) as pdf:
+        for page in pdf.pages:
+            words = page.extract_words(use_text_flow=True)
+            # calcul médiane
+            mids = sorted([w["x0"] for w in words])
+            x_mid = mids[len(mids)//2]
+            left = [w for w in words if w["x0"] < x_mid]
+            right= [w for w in words if w["x0"] >= x_mid]
+            def reconstruct(col):
+                col_sorted = sorted(col, key=lambda w: (w["top"], w["x0"]))
+                paras, line, cur_top = [], [], None
+                for w in col_sorted:
+                    if cur_top and abs(w["top"]-cur_top)>8:
+                        paras.append(" ".join(line))
+                        line=[]
+                    line.append(w["text"]); cur_top=w["top"]
+                if line: paras.append(" ".join(line))
+                return "\n".join(paras)
+            text_pages.append(reconstruct(left) + "\n" + reconstruct(right))
+    return "\n\n".join(text_pages)
+
+# --- 3. FastAPI endpoint
+@app.post("/extract-cv/")
+async def extract_cv(file: UploadFile = File(...), api_key: str = Header(default=None)):
+    if not api_key.startswith("sk-"):
+        raise HTTPException(401, "API key missing or invalid")
     openai.api_key = api_key
 
-    # Enregistrer temporairement le fichier
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-        tmp.write(await file.read())
-        temp_path = tmp.name
+    # étape A : extraire le texte du PDF en conservant l'ordre de lecture
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    tmp.write(await file.read()); tmp.close()
+    raw_text = extract_text_columns(tmp.name)
+    os.unlink(tmp.name)
 
-    try:
-        # Uploader le fichier vers OpenAI
-        uploaded_file = openai.files.create(
-            file=open(temp_path, "rb"),
-            purpose="assistants"
-        )
-        print("Fichier uploadé :", uploaded_file)
+    # étape B : appel GPT-4 avec function-calling
+    resp = openai.ChatCompletion.create(
+        model="gpt-4.1",
+        messages=[
+            {"role":"system","content":
+             "Vous êtes un assistant d'extraction de CV. Répondez UNIQUEMENT par un appel de fonction `extract_cv`."},
+            {"role":"user","content": raw_text}
+        ],
+        functions=[extract_cv_schema],
+        function_call={"name":"extract_cv"}
+    )
 
-        # Créer l'assistant avec file_search activé
-        assistant = openai.beta.assistants.create(
-            name="CV Extractor",
-            instructions="""
-            Tu es un assistant expert en analyse de CV PDF.
-            Retourne un JSON structuré avec :
-            - Informations personnelles
-            - Expériences (dates, entreprise, poste, missions, compétences)
-            - Diplômes, formations
-            - Certifications
-            - Langues
-            - Compétences techniques et personnelles
-            - Périodes d’inactivité
-            - Nombre d'années d'expérience
-
-            Fournis uniquement ces données en JSON, sans texte supplémentaire.
-            """,
-            model="gpt-4.1",
-            tools=[{"type": "file_search"}]
-        )
-
-        # Créer un thread de discussion
-        thread = openai.beta.threads.create()
-
-        # Ajouter un message utilisateur avec attachement du fichier
-        openai.beta.threads.messages.create(
-            thread_id=thread.id,
-            role="user",
-            content="Analyse ce CV et renvoie les informations sous forme de JSON.",
-            attachments=[
-                {
-                    "file_id": uploaded_file.id,
-                    "tools": [{"type": "file_search"}]
-                }
-            ]
-        )
-
-        # Lancer le traitement
-        run = openai.beta.threads.runs.create(
-            thread_id=thread.id,
-            assistant_id=assistant.id
-        )
-
-        # Attendre que le traitement se termine avec log en cas d'erreur
-        while True:
-            run_status = openai.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
-
-            if run_status.status == "completed":
-                break
-            elif run_status.status in ["failed", "cancelled", "expired"]:
-                print("Échec du run OpenAI:")
-                print(run_status)
-                raise HTTPException(status_code=500, detail=f"OpenAI run failed: {run_status.status}")
-            
-            time.sleep(2)
-
-        # Récupérer la réponse finale
-        messages = openai.beta.threads.messages.list(thread_id=thread.id)
-        final_message = messages.data[0].content[0].text.value
-
-        return {"result": final_message}
-
-    finally:
-        os.remove(temp_path)
+    args = resp.choices[0].message.function_call.arguments
+    data = json.loads(args)
+    return data
