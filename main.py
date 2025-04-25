@@ -138,11 +138,11 @@ async def extract_cv(
         raw_text = extract_text_columns(temp_path)
         logger.debug(f"Raw text extrait (premiers 200 chars): {raw_text[:200]!r}")
 
-        # Appel API OpenAI
-        logger.info("Appel OpenAI.ChatCompletion.create() …")
+        # Appel API OpenAI : syntaxe `openai.chat.completions.create(...)`
+        logger.info("Appel openai.chat.completions.create() …")
         try:
-            response = openai.ChatCompletion.create(
-                model="gpt-4.1",
+            response = openai.chat.completions.create(
+                model="gpt-4-0613",
                 messages=[
                     {"role": "system", "content": "Tu es un assistant d’extraction de CV. Réponds seulement via la fonction extract_cv."},
                     {"role": "user",   "content": raw_text}
