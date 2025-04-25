@@ -16,8 +16,8 @@ def validate_api_key(api_key: str = Depends(api_key_header)):
         raise HTTPException(status_code=401, detail="Clé API invalide")
     return api_key
 
-@app.post("/format-cv")
-async def format_cv(
+@app.post("/format-cv-template")
+async def format_cv_template(
     request: Request,
     template_file: UploadFile = File(...),
     as_pdf: bool = Query(False, description="True pour générer un PDF"),
