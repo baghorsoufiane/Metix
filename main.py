@@ -142,7 +142,7 @@ async def extract_cv(
         logger.info("Appel openai.chat.completions.create() …")
         try:
             response = openai.chat.completions.create(
-                model="gpt-4-0613",
+                model="gpt-4.1",
                 messages=[
                     {"role": "system", "content": "Tu es un assistant d’extraction de CV. Réponds seulement via la fonction extract_cv."},
                     {"role": "user",   "content": raw_text}
