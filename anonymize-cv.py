@@ -34,16 +34,26 @@ async def anonymize_cv(
     if not api_key.startswith("sk-"):
         raise HTTPException(status_code=401, detail="Clé API invalide")
 
-    # Anonymisation
     anonymized = cv.dict()
-    anonymized.update({
-        "name": None,
-        "email": None,
-        "phone": None,
-        "photo": None
-    })
 
-    # Masquer les écoles (ex : "HEC Paris" → "[École masquée]")
+    # Masquage nom complet → Initiale prénom + 2 lettres nom (ex: "Sarah Khelifi" → "SKh")
+    if cv.name:
+        parts = cv.name.strip().split()
+        if len(parts) >= 2:
+            prenom = parts[0]
+            nom = parts[-1]
+            anonymized["name"] = prenom[0] + nom[:2]
+        else:
+            anonymized["name"] = "[Nom masqué]"
+    else:
+        anonymized["name"] = "[Nom masqué]"
+
+    # Masquage total des autres infos perso
+    anonymized["email"] = "[Email masqué]"
+    anonymized["phone"] = "[Téléphone masqué]"
+    anonymized["photo"] = None
+
+    # Masquer les écoles
     for edu in anonymized.get("education", []):
         edu["school"] = "[École masquée]"
 
