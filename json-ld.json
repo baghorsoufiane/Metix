@@ -1,0 +1,40 @@
+{
+  "@context": "https://schema.org/",
+  "@type": "JobPosting",
+  "title": "Développeur Python Senior",
+  "description": "Nous recherchons un développeur Python expérimenté pour rejoindre notre équipe de développement web à Paris.",
+  "identifier": {
+    "@type": "PropertyValue",
+    "name": "Tech Solutions Inc.",
+    "value": "TSI-DEV-001"
+  },
+  "datePosted": "2025-04-26",
+  "validThrough": "2025-05-31T23:59",
+  "employmentType": "FULL_TIME",
+  "hiringOrganization": {
+    "@type": "Organization",
+    "name": "Tech Solutions Inc.",
+    "sameAs": "https://www.techsolutions.com",
+    "logo": "https://www.techsolutions.com/logo.png"
+  },
+  "jobLocation": {
+    "@type": "Place",
+    "address": {
+      "@type": "PostalAddress",
+      "streetAddress": "123 Rue de l'Innovation",
+      "addressLocality": "Paris",
+      "addressRegion": "Île-de-France",
+      "postalCode": "75000",
+      "addressCountry": "FR"
+    }
+  },
+  "baseSalary": {
+    "@type": "MonetaryAmount",
+    "currency": "EUR",
+    "value": {
+      "@type": "QuantitativeValue",
+      "value": 60000,
+      "unitText": "YEAR"
+    }
+  }
+}
